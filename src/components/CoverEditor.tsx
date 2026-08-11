@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, useMotionValue } from 'motion/react';
 import { toPng } from 'html-to-image';
-import { Upload, Download, Image as ImageIcon, Type, Palette } from 'lucide-react';
+import { Upload, Download, Image as ImageIcon, Type, Palette, RotateCcw } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -11,6 +11,9 @@ export function cn(...inputs: ClassValue[]) {
 
 import { i18n, aspectRatios, TEXT_BG_STYLES } from '../constants/editor';
 import { TextOverlay } from './editor/TextOverlay';
+
+const BG_MIN_SCALE = 0.2;
+const BG_MAX_SCALE = 5;
 
 const useVideoFrame = (videoUrl: string | null, time: number) => {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
@@ -170,6 +173,7 @@ export default function CoverEditor() {
   const containerRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
+  const currentBgRef = useRef<string | null>(null);
   const [scale, setScale] = useState(1);
   const [isSelected, setIsSelected] = useState(false);
   const [showVerticalGuide, setShowVerticalGuide] = useState(false);
@@ -177,6 +181,11 @@ export default function CoverEditor() {
   
   const x = useMotionValue(0);
   const y = useMotionValue(0);
+
+  const [bgPosX, setBgPosX] = useState(50);
+  const [bgPosY, setBgPosY] = useState(50);
+  const [bgScale, setBgScale] = useState(1);
+  const [bgTransformTick, setBgTransformTick] = useState(0);
 
   useEffect(() => {
     const saved = localStorage.getItem('opencovermaker_projects');
@@ -219,6 +228,7 @@ export default function CoverEditor() {
       bgType, bgColor, bgImage, videoUrl, videoTime,
       ratio, text, textStyleId, fontSize, textColor,
       fontFamily, fontWeight, fontStyle, textDecoration, textAlign, strokeColor, strokeWidth,
+      bgPosX, bgPosY, bgScale,
       x: x.get(), y: y.get()
     };
 
@@ -255,7 +265,7 @@ export default function CoverEditor() {
       handleSaveCurrentProject();
     }, 2000);
     return () => clearTimeout(timer);
-  }, [bgType, bgColor, bgImage, videoUrl, videoTime, ratio, text, textStyleId, fontSize, textColor, fontFamily, fontWeight, fontStyle, textDecoration, textAlign, strokeColor, strokeWidth]);
+  }, [bgType, bgColor, bgImage, videoUrl, videoTime, ratio, text, textStyleId, fontSize, textColor, fontFamily, fontWeight, fontStyle, textDecoration, textAlign, strokeColor, strokeWidth, bgScale, bgTransformTick]);
 
   const handleLoadProject = (project: Project) => {
     setCurrentProjectId(project.id);
@@ -280,6 +290,9 @@ export default function CoverEditor() {
       setStrokeWidth(c.strokeWidth || 0);
       x.set(c.x || 0);
       y.set(c.y || 0);
+      setBgPosX(c.bgPosX ?? 50);
+      setBgPosY(c.bgPosY ?? 50);
+      setBgScale(c.bgScale ?? 1);
     }
   };
 
@@ -304,6 +317,9 @@ export default function CoverEditor() {
     setStrokeWidth(0);
     x.set(0);
     y.set(0);
+    setBgPosX(50);
+    setBgPosY(50);
+    setBgScale(1);
   };
 
   const handleDeleteProject = (id: string) => {
@@ -456,6 +472,58 @@ export default function CoverEditor() {
     );
   };
 
+  const resetBgTransform = () => {
+    setBgPosX(50);
+    setBgPosY(50);
+    setBgScale(1);
+    setBgTransformTick(v => v + 1);
+  };
+
+  const clampPct = (v: number) => Math.min(100, Math.max(0, v));
+
+  const handleBgDragStart = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    setIsSelected(false);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startPosX = bgPosX;
+    const startPosY = bgPosY;
+    const fw = aspectRatios[ratio].w;
+    const fh = aspectRatios[ratio].h;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const deltaX = (moveEvent.clientX - startX) / scale;
+      const deltaY = (moveEvent.clientY - startY) / scale;
+      setBgPosX(clampPct(startPosX - (deltaX / fw) * 100));
+      setBgPosY(clampPct(startPosY - (deltaY / fh) * 100));
+    };
+
+    const handlePointerUp = () => {
+      setBgTransformTick(v => v + 1);
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+  };
+
+  useEffect(() => {
+    const el = exportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!currentBgRef.current) return;
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0015);
+      setBgScale(prev => Math.max(BG_MIN_SCALE, Math.min(BG_MAX_SCALE, prev * factor)));
+      setBgTransformTick(v => v + 1);
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
   useEffect(() => {
     const updateScale = () => {
       if (containerRef.current) {
@@ -515,6 +583,7 @@ export default function CoverEditor() {
       setVideoUrl(url);
       setBgImage(null);
       setVideoTime(0);
+      resetBgTransform();
     } else if (file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -544,6 +613,7 @@ export default function CoverEditor() {
             setBgType('image');
             setBgImage(dataUrl);
             setVideoUrl(null);
+            resetBgTransform();
           }
         };
         img.src = event.target?.result as string;
@@ -553,6 +623,7 @@ export default function CoverEditor() {
   };
 
   const currentBg = bgType === 'video' ? frameUrl : bgImage;
+  currentBgRef.current = currentBg;
 
   return (
     <div className="flex flex-col lg:flex-row flex-1 bg-[#0A0A0A] text-white overflow-hidden font-sans">
@@ -584,7 +655,19 @@ export default function CoverEditor() {
           >
             <div ref={exportRef} className="w-full h-full relative overflow-hidden ring-1 ring-white/20" style={{ backgroundColor: bgColor }}>
               {currentBg && (
-                <img src={currentBg} crossOrigin="anonymous" className="w-full h-full object-cover" alt="Background" />
+                <img
+                  src={currentBg}
+                  crossOrigin="anonymous"
+                  draggable={false}
+                  alt="Background"
+                  className="w-full h-full object-cover pointer-events-auto cursor-grab active:cursor-grabbing select-none"
+                  style={{
+                    objectPosition: `${bgPosX}% ${bgPosY}%`,
+                    transform: `scale(${bgScale})`,
+                    transformOrigin: 'center',
+                  }}
+                  onPointerDown={handleBgDragStart}
+                />
               )}
               
               {/* Center Guides */}
@@ -759,6 +842,38 @@ export default function CoverEditor() {
                       className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Background Adjust (Pan & Zoom) */}
+              {currentBg && (
+                <div className="bg-[#0A0A0A] p-4 rounded-xl border border-white/10 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <label className="text-sm font-medium text-neutral-300">{t.bgAdjust}</label>
+                    <button
+                      onClick={resetBgTransform}
+                      className="flex items-center gap-1 text-xs text-neutral-400 hover:text-[#00FF66] transition-colors"
+                    >
+                      <RotateCcw size={12} />
+                      {t.reset}
+                    </button>
+                  </div>
+                  <div>
+                    <label className="flex justify-between text-xs font-medium text-neutral-400 mb-2">
+                      <span>{t.bgScale}</span>
+                      <span>{Math.round(bgScale * 100)}%</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={BG_MIN_SCALE}
+                      max={BG_MAX_SCALE}
+                      step={0.01}
+                      value={bgScale}
+                      onChange={(e) => setBgScale(parseFloat(e.target.value))}
+                      className="w-full accent-[#00FF66]"
+                    />
+                  </div>
+                  <p className="text-xs text-neutral-500 leading-relaxed">{t.bgAdjustHint}</p>
                 </div>
               )}
               

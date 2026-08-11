@@ -22,7 +22,7 @@
 
 ### Prerequisites
 
-- Node.js (v18 or higher recommended)
+- Node.js (v20.19 or higher recommended)
 - npm or yarn
 
 ### Installation
@@ -51,7 +51,7 @@
 
 ## 🛠️ Tech Stack
 
-- **Framework**: [React 18](https://reactjs.org/)
+- **Framework**: [React 19](https://react.dev/)
 - **Build Tool**: [Vite](https://vitejs.dev/)
 - **Styling**: [Tailwind CSS](https://tailwindcss.com/)
 - **Icons**: [Lucide React](https://lucide.dev/)
