@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Layers, Trash2, Plus, Type } from 'lucide-react';
+import { Layers, Trash2, Plus, Type, ImageIcon } from 'lucide-react';
 import { cn } from './CoverEditor';
 import { TextLayer } from '../constants/editor';
 
@@ -10,6 +10,10 @@ interface LayerListSidebarProps {
   onAddLayer: () => void;
   onDeleteLayer: (id: string) => void;
   onRenameLayer: (id: string, name: string) => void;
+  bgThumbnail: string | null;
+  bgColor: string;
+  isBackgroundActive: boolean;
+  onSelectBackground: () => void;
   t: typeof import('../constants/editor').i18n.en;
   className?: string;
 }
@@ -21,6 +25,10 @@ export function LayerListSidebar({
   onAddLayer,
   onDeleteLayer,
   onRenameLayer,
+  bgThumbnail,
+  bgColor,
+  isBackgroundActive,
+  onSelectBackground,
   t,
   className
 }: LayerListSidebarProps) {
@@ -65,6 +73,32 @@ export function LayerListSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        {/* Background layer */}
+        <div
+          className={cn(
+            "group flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors",
+            isBackgroundActive ? "bg-white/10" : "hover:bg-white/5"
+          )}
+          onClick={onSelectBackground}
+        >
+          <div className="w-10 h-10 rounded border border-white/10 overflow-hidden shrink-0 flex items-center justify-center" style={{ backgroundColor: bgColor }}>
+            {bgThumbnail ? (
+              <img src={bgThumbnail} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <ImageIcon size={16} className="text-neutral-500" />
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium text-neutral-200 truncate">
+              {t.backgroundLayer}
+            </div>
+            <div className="text-xs text-neutral-500 mt-0.5 truncate">
+              {bgThumbnail ? t.bgTab : t.solidColor}
+            </div>
+          </div>
+        </div>
+
+        {/* Text layers */}
         {layers.length === 0 ? (
           <div className="text-center text-sm text-neutral-500 mt-8">
             {t.noLayers}

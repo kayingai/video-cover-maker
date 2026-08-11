@@ -745,7 +745,7 @@ export default function CoverEditor() {
       <LayerListSidebar
         layers={layers}
         activeLayerId={activeLayerId}
-        onSelectLayer={setActiveLayerId}
+        onSelectLayer={(id) => { setActiveLayerId(id); }}
         onAddLayer={() => {
           const layer = createDefaultLayer();
           setLayers(prev => [...prev, layer]);
@@ -759,6 +759,10 @@ export default function CoverEditor() {
           }
         }}
         onRenameLayer={(id, name) => setLayers(prev => prev.map(l => l.id === id ? { ...l, name } : l))}
+        bgThumbnail={currentBg}
+        bgColor={bgColor}
+        isBackgroundActive={activeTab === 'background'}
+        onSelectBackground={() => setActiveTab('background')}
         t={t}
       />
       
@@ -1278,14 +1282,14 @@ export default function CoverEditor() {
                         text={t.stylePreview} 
                         styleId={style.id} 
                         fontSize={100} 
-                        color={activeLayer.color} 
-                        fontFamily={activeLayer.fontFamily}
-                        fontWeight={activeLayer.fontWeight}
-                        fontStyle={activeLayer.fontStyle}
-                        textDecoration={activeLayer.textDecoration}
-                        textAlign={activeLayer.textAlign}
-                        strokeColor={activeLayer.strokeColor}
-                        strokeWidth={activeLayer.strokeWidth}
+                        color="#ffffff"
+                        fontFamily="sans-serif"
+                        fontWeight="900"
+                        fontStyle="normal"
+                        textDecoration="none"
+                        textAlign="center"
+                        strokeColor="transparent"
+                        strokeWidth={0}
                       />
                     </div>
                     <span className="absolute bottom-2 text-xs text-neutral-400 font-medium">{(t as any)[style.nameKey]}</span>
