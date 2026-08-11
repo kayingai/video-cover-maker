@@ -137,6 +137,40 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
           <div className="leading-none self-end" style={{ fontSize: '1.1em', transform: 'translateY(0.1em)' }}>」</div>
         </div>
       );
+    case 'gold-news-title':
+      return (
+        <div
+          style={{
+            ...baseStyle,
+            color: '#FFD700',
+            fontSize: `${fontSize}px`,
+            lineHeight: '1.25',
+            letterSpacing: '0.04em',
+            textAlign: 'center',
+            filter: 'drop-shadow(0.04em 0.04em 0px rgba(0,0,0,0.9)) drop-shadow(0.06em 0.06em 0px rgba(0,0,0,0.7))',
+            padding: '0.1em 0.15em',
+          }}
+        >
+          {lines.map((line: string, i: number) => <div key={i}>{line}</div>)}
+        </div>
+      );
+    case 'red-emphasis-subtitle':
+      return (
+        <div
+          style={{
+            ...baseStyle,
+            color: '#FF1A1A',
+            fontSize: `${fontSize}px`,
+            lineHeight: '1.25',
+            letterSpacing: '0.02em',
+            textAlign: 'center',
+            filter: 'drop-shadow(0.04em 0.04em 0px rgba(0,0,0,0.9)) drop-shadow(0.06em 0.06em 0px rgba(0,0,0,0.7))',
+            padding: '0.1em 0.15em',
+          }}
+        >
+          {lines.map((line: string, i: number) => <div key={i}>{line}</div>)}
+        </div>
+      );
     default:
       return (
         <div 

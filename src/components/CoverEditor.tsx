@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion, useMotionValue } from 'motion/react';
+import { motion } from 'motion/react';
 import { toPng } from 'html-to-image';
 import { Upload, Download, Image as ImageIcon, Type, Palette, RotateCcw } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
@@ -9,11 +9,20 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-import { i18n, aspectRatios, TEXT_BG_STYLES } from '../constants/editor';
+import { i18n, aspectRatios, TEXT_BG_STYLES, TextLayer } from '../constants/editor';
 import { TextOverlay } from './editor/TextOverlay';
+import { LayerListSidebar } from './ProjectHistorySidebar';
 
 const BG_MIN_SCALE = 0.2;
 const BG_MAX_SCALE = 5;
+
+interface Project {
+  id: string;
+  name: string;
+  updatedAt: number;
+  thumbnail?: string;
+  config: any;
+}
 
 const useVideoFrame = (videoUrl: string | null, time: number) => {
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
@@ -136,8 +145,6 @@ const useVideoThumbnails = (videoUrl: string | null, count: number = 8) => {
   return { thumbnails, isGenerating };
 };
 
-import { ProjectHistorySidebar, Project } from './ProjectHistorySidebar';
-
 export default function CoverEditor() {
   const [lang, setLang] = useState<'en' | 'zh'>('en');
   const t = i18n[lang];
@@ -155,32 +162,65 @@ export default function CoverEditor() {
 
   const [ratio, setRatio] = useState<keyof typeof aspectRatios>('16:9');
 
-  const [text, setText] = useState(i18n.en.defaultText);
-  const [textStyleId, setTextStyleId] = useState('orange-3d');
-  const [fontSize, setFontSize] = useState(120);
-  const [textColor, setTextColor] = useState('#ffffff');
-  const [fontFamily, setFontFamily] = useState('sans-serif');
-  const [fontWeight, setFontWeight] = useState('900');
-  const [fontStyle, setFontStyle] = useState('normal');
-  const [textDecoration, setTextDecoration] = useState('none');
-  const [textAlign, setTextAlign] = useState<'left' | 'center' | 'right'>('center');
-  const [strokeColor, setStrokeColor] = useState('transparent');
-  const [strokeWidth, setStrokeWidth] = useState(0);
+  const [layers, setLayers] = useState<TextLayer[]>([
+    {
+      id: '1',
+      name: 'Text 1',
+      text: i18n.en.defaultText,
+      styleId: 'none',
+      fontSize: 120,
+      color: '#ffffff',
+      fontFamily: 'sans-serif',
+      fontWeight: '900',
+      fontStyle: 'normal',
+      textDecoration: 'none',
+      textAlign: 'center',
+      strokeColor: 'transparent',
+      strokeWidth: 0,
+      x: 0,
+      y: 0,
+    },
+  ]);
+  const [activeLayerId, setActiveLayerId] = useState<string>('1');
+
+  const activeLayer = layers.find(l => l.id === activeLayerId) || layers[0];
+
+  const updateLayer = (id: string, updates: Partial<TextLayer>) => {
+    setLayers(prev => prev.map(l => (l.id === id ? { ...l, ...updates } : l)));
+  };
+
+  const updateActiveLayer = (updates: Partial<TextLayer>) => {
+    updateLayer(activeLayerId, updates);
+  };
+
+  const createDefaultLayer = (): TextLayer => ({
+    id: Math.random().toString(36).substring(2, 9),
+    name: `Text ${layers.length + 1}`,
+    text: i18n[lang].defaultText,
+    styleId: 'none',
+    fontSize: 120,
+    color: '#ffffff',
+    fontFamily: 'sans-serif',
+    fontWeight: '900',
+    fontStyle: 'normal',
+    textDecoration: 'none',
+    textAlign: 'center',
+    strokeColor: 'transparent',
+    strokeWidth: 0,
+    x: 0,
+    y: 0,
+  });
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
-  const textRef = useRef<HTMLDivElement>(null);
   const currentBgRef = useRef<string | null>(null);
   const [scale, setScale] = useState(1);
   const [isSelected, setIsSelected] = useState(false);
   const [showVerticalGuide, setShowVerticalGuide] = useState(false);
   const [showHorizontalGuide, setShowHorizontalGuide] = useState(false);
-  
-  const x = useMotionValue(0);
-  const y = useMotionValue(0);
 
   const [bgPosX, setBgPosX] = useState(50);
   const [bgPosY, setBgPosY] = useState(50);
@@ -210,7 +250,6 @@ export default function CoverEditor() {
   const handleSaveCurrentProject = async () => {
     if (!exportRef.current) return;
     
-    // Generate a small thumbnail
     let thumbnail = '';
     try {
       thumbnail = await toPng(exportRef.current, {
@@ -226,14 +265,13 @@ export default function CoverEditor() {
 
     const config = {
       bgType, bgColor, bgImage, videoUrl, videoTime,
-      ratio, text, textStyleId, fontSize, textColor,
-      fontFamily, fontWeight, fontStyle, textDecoration, textAlign, strokeColor, strokeWidth,
+      ratio, layers, activeLayerId,
       bgPosX, bgPosY, bgScale,
-      x: x.get(), y: y.get()
     };
 
     const now = Date.now();
     let updatedProjects = [...projects];
+    const projectName = activeLayer?.text.slice(0, 20) || 'Untitled';
     
     if (currentProjectId) {
       const idx = updatedProjects.findIndex(p => p.id === currentProjectId);
@@ -243,16 +281,16 @@ export default function CoverEditor() {
           updatedAt: now,
           config,
           thumbnail,
-          name: text.slice(0, 20) || 'Untitled'
+          name: projectName,
         };
       } else {
-        const newProject = { id: currentProjectId, name: text.slice(0, 20) || 'Untitled', updatedAt: now, config, thumbnail };
+        const newProject = { id: currentProjectId, name: projectName, updatedAt: now, config, thumbnail };
         updatedProjects = [newProject, ...updatedProjects];
       }
     } else {
       const newId = Math.random().toString(36).substring(2, 9);
       setCurrentProjectId(newId);
-      const newProject = { id: newId, name: text.slice(0, 20) || 'Untitled', updatedAt: now, config, thumbnail };
+      const newProject = { id: newId, name: projectName, updatedAt: now, config, thumbnail };
       updatedProjects = [newProject, ...updatedProjects];
     }
     
@@ -265,34 +303,44 @@ export default function CoverEditor() {
       handleSaveCurrentProject();
     }, 2000);
     return () => clearTimeout(timer);
-  }, [bgType, bgColor, bgImage, videoUrl, videoTime, ratio, text, textStyleId, fontSize, textColor, fontFamily, fontWeight, fontStyle, textDecoration, textAlign, strokeColor, strokeWidth, bgScale, bgTransformTick]);
+  }, [bgType, bgColor, bgImage, videoUrl, videoTime, ratio, layers, activeLayerId, bgScale, bgTransformTick]);
 
   const handleLoadProject = (project: Project) => {
     setCurrentProjectId(project.id);
-    const c = project.config;
-    if (c) {
-      setBgType(c.bgType || 'color');
-      setBgColor(c.bgColor || '#1a1a1a');
-      setBgImage(c.bgImage || null);
-      setVideoUrl(c.videoUrl || null);
-      setVideoTime(c.videoTime || 0);
-      setRatio(c.ratio || '16:9');
-      setText(c.text || '');
-      setTextStyleId(c.textStyleId || 'orange-3d');
-      setFontSize(c.fontSize || 120);
-      setTextColor(c.textColor || '#ffffff');
-      setFontFamily(c.fontFamily || 'sans-serif');
-      setFontWeight(c.fontWeight || '900');
-      setFontStyle(c.fontStyle || 'normal');
-      setTextDecoration(c.textDecoration || 'none');
-      setTextAlign(c.textAlign || 'center');
-      setStrokeColor(c.strokeColor || 'transparent');
-      setStrokeWidth(c.strokeWidth || 0);
-      x.set(c.x || 0);
-      y.set(c.y || 0);
-      setBgPosX(c.bgPosX ?? 50);
-      setBgPosY(c.bgPosY ?? 50);
-      setBgScale(c.bgScale ?? 1);
+    const c = project.config || {};
+    setBgType(c.bgType || 'color');
+    setBgColor(c.bgColor || '#1a1a1a');
+    setBgImage(c.bgImage || null);
+    setVideoUrl(c.videoUrl || null);
+    setVideoTime(c.videoTime || 0);
+    setRatio(c.ratio || '16:9');
+    setBgPosX(c.bgPosX ?? 50);
+    setBgPosY(c.bgPosY ?? 50);
+    setBgScale(c.bgScale ?? 1);
+
+    if (c.layers && Array.isArray(c.layers) && c.layers.length > 0) {
+      setLayers(c.layers);
+      setActiveLayerId(c.activeLayerId || c.layers[0].id);
+    } else {
+      const fallbackLayer: TextLayer = {
+        id: '1',
+        name: 'Text 1',
+        text: c.text || '',
+        styleId: c.textStyleId || 'none',
+        fontSize: c.fontSize || 120,
+        color: c.textColor || '#ffffff',
+        fontFamily: c.fontFamily || 'sans-serif',
+        fontWeight: c.fontWeight || '900',
+        fontStyle: c.fontStyle || 'normal',
+        textDecoration: c.textDecoration || 'none',
+        textAlign: c.textAlign || 'center',
+        strokeColor: c.strokeColor || 'transparent',
+        strokeWidth: c.strokeWidth || 0,
+        x: c.x || 0,
+        y: c.y || 0,
+      };
+      setLayers([fallbackLayer]);
+      setActiveLayerId('1');
     }
   };
 
@@ -304,19 +352,27 @@ export default function CoverEditor() {
     setVideoUrl(null);
     setVideoTime(0);
     setRatio('16:9');
-    setText(i18n[lang].defaultText);
-    setTextStyleId('orange-3d');
-    setFontSize(120);
-    setTextColor('#ffffff');
-    setFontFamily('sans-serif');
-    setFontWeight('900');
-    setFontStyle('normal');
-    setTextDecoration('none');
-    setTextAlign('center');
-    setStrokeColor('transparent');
-    setStrokeWidth(0);
-    x.set(0);
-    y.set(0);
+    setLayers([
+      {
+        id: '1',
+        name: 'Text 1',
+        text: i18n[lang].defaultText,
+        styleId: 'none',
+        fontSize: 120,
+        color: '#ffffff',
+        fontFamily: 'sans-serif',
+        fontWeight: '900',
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        textAlign: 'center',
+        strokeColor: 'transparent',
+        strokeWidth: 0,
+        x: 0,
+        y: 0,
+      },
+    ]);
+    setActiveLayerId('1');
+    setIsSelected(false);
     setBgPosX(50);
     setBgPosY(50);
     setBgScale(1);
@@ -335,30 +391,40 @@ export default function CoverEditor() {
     if (prevRatioRef.current !== ratio) {
       const prevWidth = aspectRatios[prevRatioRef.current].w;
       const newWidth = aspectRatios[ratio].w;
-      setFontSize(prev => Math.max(20, Math.round(prev * (newWidth / prevWidth))));
+      if (activeLayer) {
+        updateActiveLayer({
+          fontSize: Math.max(20, Math.round(activeLayer.fontSize * (newWidth / prevWidth))),
+        });
+      }
       prevRatioRef.current = ratio;
     }
   }, [ratio]);
 
   useEffect(() => {
-    if (lang === 'en' && text === i18n.zh.defaultText) setText(i18n.en.defaultText);
-    if (lang === 'zh' && text === i18n.en.defaultText) setText(i18n.zh.defaultText);
-  }, [lang, text]);
+    if (!activeLayer) return;
+    if (lang === 'en' && activeLayer.text === i18n.zh.defaultText) {
+      updateActiveLayer({ text: i18n.en.defaultText });
+    }
+    if (lang === 'zh' && activeLayer.text === i18n.en.defaultText) {
+      updateActiveLayer({ text: i18n.zh.defaultText });
+    }
+  }, [lang]);
 
-  const handleDragStart = (e: React.PointerEvent) => {
-    // Only handle left click
+  const handleDragStart = (e: React.PointerEvent, targetLayer?: TextLayer) => {
     if (e.button !== 0) return;
     
     e.stopPropagation();
     setIsSelected(true);
+
+    const layer = targetLayer || activeLayer;
+    if (!layer) return;
     
     const startX = e.clientX;
     const startY = e.clientY;
-    const startPosX = x.get();
-    const startPosY = y.get();
+    const startPosX = layer.x;
+    const startPosY = layer.y;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
-      // Divide by scale to ensure element tracks mouse perfectly
       const deltaX = (moveEvent.clientX - startX) / scale;
       const deltaY = (moveEvent.clientY - startY) / scale;
       
@@ -381,8 +447,7 @@ export default function CoverEditor() {
         setShowHorizontalGuide(false);
       }
       
-      x.set(newX);
-      y.set(newY);
+      updateLayer(layer.id, { x: newX, y: newY });
     };
 
     const handlePointerUp = () => {
@@ -398,13 +463,15 @@ export default function CoverEditor() {
 
   const handleResizeStart = (e: React.PointerEvent, position: string) => {
     e.stopPropagation();
+    if (!activeLayer) return;
+
     const startX = e.clientX;
     const startY = e.clientY;
-    const startFontSize = fontSize;
-    const startWidth = textRef.current?.offsetWidth || 1;
-    const startHeight = textRef.current?.offsetHeight || 1;
-    const startPosX = x.get();
-    const startPosY = y.get();
+    const startFontSize = activeLayer.fontSize;
+    const startWidth = Math.max(1, activeLayer.fontSize * activeLayer.text.length * 0.6);
+    const startHeight = activeLayer.fontSize * 1.3;
+    const startPosX = activeLayer.x;
+    const startPosY = activeLayer.y;
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = (moveEvent.clientX - startX) / scale;
@@ -415,7 +482,6 @@ export default function CoverEditor() {
 
       const scaleFactor = Math.max(0.1, 1 + widthDelta / startWidth);
       const newFontSize = startFontSize * scaleFactor;
-      setFontSize(Math.round(newFontSize));
 
       const widthDiff = startWidth * (scaleFactor - 1);
       const heightDiff = startHeight * (scaleFactor - 1);
@@ -437,8 +503,11 @@ export default function CoverEditor() {
         newY = startPosY - heightDiff / 2;
       }
 
-      x.set(newX);
-      y.set(newY);
+      updateActiveLayer({
+        fontSize: Math.max(20, Math.round(newFontSize)),
+        x: newX,
+        y: newY,
+      });
     };
 
     const handlePointerUp = () => {
@@ -573,6 +642,52 @@ export default function CoverEditor() {
     }
   };
 
+  const applyTextTemplate = (templateId: 'default' | 'gold-news-title' | 'red-emphasis-subtitle') => {
+    if (templateId === 'default') {
+      updateActiveLayer({
+        text: i18n[lang].defaultText,
+        styleId: 'none',
+        fontSize: 120,
+        color: '#ffffff',
+        fontFamily: 'sans-serif',
+        fontWeight: '900',
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        textAlign: 'center',
+        strokeColor: 'transparent',
+        strokeWidth: 0,
+      });
+    } else if (templateId === 'gold-news-title') {
+      updateActiveLayer({
+        text: lang === 'zh' ? '居民躺平裁员潮蔓延' : 'Economic Concerns Rise',
+        styleId: 'gold-news-title',
+        fontSize: 140,
+        color: '#FFD700',
+        fontWeight: '900',
+        textAlign: 'center',
+        strokeColor: '#000000',
+        strokeWidth: 6,
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        fontFamily: 'sans-serif',
+      });
+    } else {
+      updateActiveLayer({
+        text: lang === 'zh' ? '央行有点急了！' : 'Central Bank Worried!',
+        styleId: 'red-emphasis-subtitle',
+        fontSize: 120,
+        color: '#FF1A1A',
+        fontWeight: '900',
+        textAlign: 'center',
+        strokeColor: '#000000',
+        strokeWidth: 6,
+        fontStyle: 'normal',
+        textDecoration: 'none',
+        fontFamily: 'sans-serif',
+      });
+    }
+  };
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -626,17 +741,29 @@ export default function CoverEditor() {
   currentBgRef.current = currentBg;
 
   return (
-    <div className="flex flex-col lg:flex-row flex-1 bg-[#0A0A0A] text-white overflow-hidden font-sans">
-      <ProjectHistorySidebar
-        currentProjectId={currentProjectId}
-        onLoadProject={handleLoadProject}
-        onNewProject={handleNewProject}
-        projects={projects}
-        onDeleteProject={handleDeleteProject}
+    <div className="flex flex-col lg:flex-row flex-1 w-full bg-[#0A0A0A] text-white overflow-hidden font-sans">
+      <LayerListSidebar
+        layers={layers}
+        activeLayerId={activeLayerId}
+        onSelectLayer={setActiveLayerId}
+        onAddLayer={() => {
+          const layer = createDefaultLayer();
+          setLayers(prev => [...prev, layer]);
+          setActiveLayerId(layer.id);
+        }}
+        onDeleteLayer={(id) => {
+          setLayers(prev => prev.filter(l => l.id !== id));
+          if (activeLayerId === id) {
+            const remaining = layers.filter(l => l.id !== id);
+            setActiveLayerId(remaining[0]?.id || '');
+          }
+        }}
+        onRenameLayer={(id, name) => setLayers(prev => prev.map(l => l.id === id ? { ...l, name } : l))}
+        t={t}
       />
       
       {/* Canvas Area */}
-      <div ref={containerRef} className="flex-none h-[45vh] lg:h-auto lg:flex-1 relative flex items-center justify-center bg-[#0A0A0A] p-4 lg:p-8 overflow-hidden touch-none">
+      <div ref={containerRef} className="flex-none h-[45vh] lg:h-auto lg:flex-1 relative flex items-center justify-center bg-[#0A0A0A] p-4 lg:p-8 overflow-hidden touch-none min-w-0">
         {/* Scale Wrapper */}
         <div 
           className="relative shadow-2xl transition-all duration-200 ease-out"
@@ -679,42 +806,45 @@ export default function CoverEditor() {
               )}
               
               <div 
-                className="absolute inset-0 flex items-center justify-center pointer-events-none z-20"
+                className="absolute inset-0 pointer-events-none z-20"
                 onPointerDown={() => setIsSelected(false)}
               >
-                <motion.div
-                  style={{ x, y, willChange: isSelected ? 'transform' : 'auto' }}
-                  onPointerDown={handleDragStart}
-                  className={cn(
-                    "cursor-move pointer-events-auto relative",
-                    isSelected && "ring-2 ring-blue-500 ring-offset-4 ring-offset-transparent"
-                  )}
-                >
-                  <div ref={textRef} className="pointer-events-none">
-                    <TextOverlay 
-                      text={text} 
-                      styleId={textStyleId} 
-                      fontSize={fontSize} 
-                      color={textColor} 
-                      fontFamily={fontFamily}
-                      fontWeight={fontWeight}
-                      fontStyle={fontStyle}
-                      textDecoration={textDecoration}
-                      textAlign={textAlign}
-                      strokeColor={strokeColor}
-                      strokeWidth={strokeWidth}
-                    />
-                  </div>
-                  
-                  {isSelected && (
-                    <>
-                      <ResizeHandle position="top-left" />
-                      <ResizeHandle position="top-right" />
-                      <ResizeHandle position="bottom-left" />
-                      <ResizeHandle position="bottom-right" />
-                    </>
-                  )}
-                </motion.div>
+                {layers.map(layer => (
+                  <motion.div
+                    key={layer.id}
+                    style={{ x: layer.x, y: layer.y, willChange: isSelected && activeLayerId === layer.id ? 'transform' : 'auto' }}
+                    onPointerDown={(e) => { setActiveLayerId(layer.id); handleDragStart(e, layer); }}
+                    className={cn(
+                      "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 cursor-move pointer-events-auto",
+                      isSelected && activeLayerId === layer.id && "ring-2 ring-blue-500 ring-offset-4 ring-offset-transparent"
+                    )}
+                  >
+                    <div className="pointer-events-none">
+                      <TextOverlay 
+                        text={layer.text} 
+                        styleId={layer.styleId} 
+                        fontSize={layer.fontSize} 
+                        color={layer.color} 
+                        fontFamily={layer.fontFamily}
+                        fontWeight={layer.fontWeight}
+                        fontStyle={layer.fontStyle}
+                        textDecoration={layer.textDecoration}
+                        textAlign={layer.textAlign}
+                        strokeColor={layer.strokeColor}
+                        strokeWidth={layer.strokeWidth}
+                      />
+                    </div>
+                    
+                    {isSelected && activeLayerId === layer.id && (
+                      <>
+                        <ResizeHandle position="top-left" />
+                        <ResizeHandle position="top-right" />
+                        <ResizeHandle position="bottom-left" />
+                        <ResizeHandle position="bottom-right" />
+                      </>
+                    )}
+                  </motion.div>
+                ))}
               </div>
             </div>
           </div>
@@ -745,7 +875,7 @@ export default function CoverEditor() {
       </div>
 
       {/* Controls Area */}
-      <div className="w-full lg:w-[400px] bg-[#141414] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col flex-1 lg:flex-none lg:h-full shrink-0 z-20 overflow-hidden">
+      <div className="w-full lg:w-[400px] lg:ml-6 bg-[#141414] border-t lg:border-t-0 lg:border-l border-white/10 flex flex-col flex-1 lg:flex-none lg:h-full shrink-0 z-20 overflow-hidden">
         {/* Tabs */}
         <div className="flex border-b border-white/10">
           {[
@@ -899,29 +1029,107 @@ export default function CoverEditor() {
             </div>
           )}
 
-          {activeTab === 'text' && (
+          {activeTab === 'text' && activeLayer && (
             <div className="space-y-8">
               <div>
                 <label className="block text-sm font-medium text-neutral-400 mb-3">{t.coverText}</label>
                 <textarea
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
+                  value={activeLayer.text}
+                  onChange={(e) => updateActiveLayer({ text: e.target.value })}
                   className="w-full h-32 bg-[#0A0A0A] border border-white/10 rounded-xl p-4 text-white placeholder-neutral-500 focus:outline-none focus:border-[#00FF66] resize-none transition-colors"
                   placeholder={t.textPlaceholder}
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textTemplates}</label>
+                <div className="grid grid-cols-3 gap-3">
+                  <button
+                    onClick={() => applyTextTemplate('default')}
+                    className={cn(
+                      "h-28 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
+                      activeLayer.styleId === 'none' ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
+                    )}
+                  >
+                    <div className="scale-[0.16] origin-center pointer-events-none absolute">
+                      <TextOverlay
+                        text={t.templateDefault}
+                        styleId="none"
+                        fontSize={100}
+                        color="#ffffff"
+                        fontFamily="sans-serif"
+                        fontWeight="900"
+                        fontStyle="normal"
+                        textDecoration="none"
+                        textAlign="center"
+                        strokeColor="transparent"
+                        strokeWidth={0}
+                      />
+                    </div>
+                    <span className="absolute bottom-2 text-xs text-neutral-400 font-medium">{t.templateDefault}</span>
+                  </button>
+                  <button
+                    onClick={() => applyTextTemplate('gold-news-title')}
+                    className={cn(
+                      "h-28 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
+                      activeLayer.styleId === 'gold-news-title' ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
+                    )}
+                  >
+                    <div className="scale-[0.16] origin-center pointer-events-none absolute">
+                      <TextOverlay
+                        text={t.templateGoldNewsTitle}
+                        styleId="gold-news-title"
+                        fontSize={100}
+                        color="#FFD700"
+                        fontFamily="sans-serif"
+                        fontWeight="900"
+                        fontStyle="normal"
+                        textDecoration="none"
+                        textAlign="center"
+                        strokeColor="#000000"
+                        strokeWidth={6}
+                      />
+                    </div>
+                    <span className="absolute bottom-2 text-xs text-neutral-400 font-medium">{t.templateGoldNewsTitle}</span>
+                  </button>
+                  <button
+                    onClick={() => applyTextTemplate('red-emphasis-subtitle')}
+                    className={cn(
+                      "h-28 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
+                      activeLayer.styleId === 'red-emphasis-subtitle' ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
+                    )}
+                  >
+                    <div className="scale-[0.16] origin-center pointer-events-none absolute">
+                      <TextOverlay
+                        text={t.templateRedEmphasisSubtitle}
+                        styleId="red-emphasis-subtitle"
+                        fontSize={100}
+                        color="#FF1A1A"
+                        fontFamily="sans-serif"
+                        fontWeight="900"
+                        fontStyle="normal"
+                        textDecoration="none"
+                        textAlign="center"
+                        strokeColor="#000000"
+                        strokeWidth={6}
+                      />
+                    </div>
+                    <span className="absolute bottom-2 text-xs text-neutral-400 font-medium">{t.templateRedEmphasisSubtitle}</span>
+                  </button>
+                </div>
               </div>
               
               <div>
                 <label className="flex justify-between text-sm font-medium text-neutral-400 mb-3">
                   <span>{t.fontSize}</span>
-                  <span>{fontSize}px</span>
+                  <span>{activeLayer.fontSize}px</span>
                 </label>
                 <input 
                   type="range" 
                   min={40} 
                   max={300} 
-                  value={fontSize}
-                  onChange={(e) => setFontSize(parseInt(e.target.value))}
+                  value={activeLayer.fontSize}
+                  onChange={(e) => updateActiveLayer({ fontSize: parseInt(e.target.value) })}
                   className="w-full accent-[#00FF66]"
                 />
               </div>
@@ -932,10 +1140,10 @@ export default function CoverEditor() {
                   {['#ffffff', '#000000', '#FF5A1F', '#FFD700', '#4F46E5', '#10B981'].map(c => (
                     <button
                       key={c}
-                      onClick={() => setTextColor(c)}
+                      onClick={() => updateActiveLayer({ color: c })}
                       className={cn(
                         "w-10 h-10 rounded-full border-2",
-                        textColor === c ? "border-[#00FF66] scale-110" : "border-transparent hover:scale-110"
+                        activeLayer.color === c ? "border-[#00FF66] scale-110" : "border-transparent hover:scale-110"
                       )}
                       style={{ backgroundColor: c }}
                     />
@@ -946,8 +1154,8 @@ export default function CoverEditor() {
               <div>
                 <label className="block text-sm font-medium text-neutral-400 mb-3">{t.fontFamily}</label>
                 <select
-                  value={fontFamily}
-                  onChange={(e) => setFontFamily(e.target.value)}
+                  value={activeLayer.fontFamily}
+                  onChange={(e) => updateActiveLayer({ fontFamily: e.target.value })}
                   className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                 >
                   <option value="sans-serif">Sans Serif</option>
@@ -964,8 +1172,8 @@ export default function CoverEditor() {
                 <div>
                   <label className="block text-sm font-medium text-neutral-400 mb-3">{t.fontWeight}</label>
                   <select
-                    value={fontWeight}
-                    onChange={(e) => setFontWeight(e.target.value)}
+                    value={activeLayer.fontWeight}
+                    onChange={(e) => updateActiveLayer({ fontWeight: e.target.value })}
                     className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                   >
                     <option value="normal">Normal</option>
@@ -976,8 +1184,8 @@ export default function CoverEditor() {
                 <div>
                   <label className="block text-sm font-medium text-neutral-400 mb-3">{t.fontStyle}</label>
                   <select
-                    value={fontStyle}
-                    onChange={(e) => setFontStyle(e.target.value)}
+                    value={activeLayer.fontStyle}
+                    onChange={(e) => updateActiveLayer({ fontStyle: e.target.value })}
                     className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                   >
                     <option value="normal">Normal</option>
@@ -987,8 +1195,8 @@ export default function CoverEditor() {
                 <div>
                   <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textDecoration}</label>
                   <select
-                    value={textDecoration}
-                    onChange={(e) => setTextDecoration(e.target.value)}
+                    value={activeLayer.textDecoration}
+                    onChange={(e) => updateActiveLayer({ textDecoration: e.target.value })}
                     className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                   >
                     <option value="none">None</option>
@@ -1004,10 +1212,10 @@ export default function CoverEditor() {
                   {(['left', 'center', 'right'] as const).map(align => (
                     <button
                       key={align}
-                      onClick={() => setTextAlign(align)}
+                      onClick={() => updateActiveLayer({ textAlign: align })}
                       className={cn(
                         "flex-1 py-2 rounded-xl border text-sm font-medium transition-colors",
-                        textAlign === align ? "border-[#00FF66] text-[#00FF66] bg-[#00FF66]/10" : "border-white/10 text-neutral-400 hover:border-white/20 hover:text-white"
+                        activeLayer.textAlign === align ? "border-[#00FF66] text-[#00FF66] bg-[#00FF66]/10" : "border-white/10 text-neutral-400 hover:border-white/20 hover:text-white"
                       )}
                     >
                       {align.charAt(0).toUpperCase() + align.slice(1)}
@@ -1019,29 +1227,29 @@ export default function CoverEditor() {
               <div>
                 <label className="flex justify-between text-sm font-medium text-neutral-400 mb-3">
                   <span>{t.strokeWidth}</span>
-                  <span>{strokeWidth}px</span>
+                  <span>{activeLayer.strokeWidth}px</span>
                 </label>
                 <input 
                   type="range" 
                   min={0} 
                   max={20} 
-                  value={strokeWidth}
-                  onChange={(e) => setStrokeWidth(parseInt(e.target.value))}
+                  value={activeLayer.strokeWidth}
+                  onChange={(e) => updateActiveLayer({ strokeWidth: parseInt(e.target.value) })}
                   className="w-full accent-[#00FF66]"
                 />
               </div>
 
-              {strokeWidth > 0 && (
+              {activeLayer.strokeWidth > 0 && (
                 <div>
                   <label className="block text-sm font-medium text-neutral-400 mb-3">{t.strokeColor}</label>
                   <div className="flex gap-2">
                     {['#000000', '#ffffff', '#FF5A1F', '#FFD700', '#4F46E5', '#10B981'].map(c => (
                       <button
                         key={c}
-                        onClick={() => setStrokeColor(c)}
+                        onClick={() => updateActiveLayer({ strokeColor: c })}
                         className={cn(
                           "w-10 h-10 rounded-full border-2",
-                          strokeColor === c ? "border-[#00FF66] scale-110" : "border-transparent hover:scale-110"
+                          activeLayer.strokeColor === c ? "border-[#00FF66] scale-110" : "border-transparent hover:scale-110"
                         )}
                         style={{ backgroundColor: c }}
                       />
@@ -1052,17 +1260,17 @@ export default function CoverEditor() {
             </div>
           )}
 
-          {activeTab === 'style' && (
+          {activeTab === 'style' && activeLayer && (
             <div className="space-y-6">
               <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textBgStyle}</label>
               <div className="grid grid-cols-2 gap-4">
                 {TEXT_BG_STYLES.map(style => (
                   <button
                     key={style.id}
-                    onClick={() => setTextStyleId(style.id)}
+                    onClick={() => updateActiveLayer({ styleId: style.id })}
                     className={cn(
                       "h-32 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
-                      textStyleId === style.id ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
+                      activeLayer.styleId === style.id ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
                     )}
                   >
                     <div className="scale-[0.2] origin-center pointer-events-none absolute">
@@ -1070,14 +1278,14 @@ export default function CoverEditor() {
                         text={t.stylePreview} 
                         styleId={style.id} 
                         fontSize={100} 
-                        color={textColor} 
-                        fontFamily={fontFamily}
-                        fontWeight={fontWeight}
-                        fontStyle={fontStyle}
-                        textDecoration={textDecoration}
-                        textAlign={textAlign}
-                        strokeColor={strokeColor}
-                        strokeWidth={strokeWidth}
+                        color={activeLayer.color} 
+                        fontFamily={activeLayer.fontFamily}
+                        fontWeight={activeLayer.fontWeight}
+                        fontStyle={activeLayer.fontStyle}
+                        textDecoration={activeLayer.textDecoration}
+                        textAlign={activeLayer.textAlign}
+                        strokeColor={activeLayer.strokeColor}
+                        strokeWidth={activeLayer.strokeWidth}
                       />
                     </div>
                     <span className="absolute bottom-2 text-xs text-neutral-400 font-medium">{(t as any)[style.nameKey]}</span>

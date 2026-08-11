@@ -32,6 +32,13 @@ export const i18n = {
     exportBtn: 'Export Cover',
     exportFail: 'Export failed, please try again',
     defaultText: 'Build Parkour\nGame Scene with AI',
+    textTemplates: 'Text Templates',
+    templateDefault: 'Default',
+    templateGoldNewsTitle: 'Gold News Title',
+    templateRedEmphasisSubtitle: 'Red Emphasis Subtitle',
+    layersTitle: 'Layers',
+    noLayers: 'No text layers',
+    addLayer: 'Add Text Layer',
     styleNone: 'None',
     styleOrange3d: 'Orange 3D',
     styleBlackQuote: 'Black Quote',
@@ -39,6 +46,8 @@ export const i18n = {
     styleUnderline: 'Underline',
     styleBlueGlow: 'Blue Glow',
     styleBrackets: 'Brackets',
+    styleGoldNewsTitle: 'Gold News',
+    styleRedEmphasisSubtitle: 'Red Emphasis',
     stylePreview: 'Preview',
   },
   zh: {
@@ -74,6 +83,13 @@ export const i18n = {
     exportBtn: '导出封面',
     exportFail: '导出失败，请重试',
     defaultText: '用 AI 搭建\n跑酷游戏场景',
+    textTemplates: '文字模板',
+    templateDefault: '默认',
+    templateGoldNewsTitle: '金色新闻标题',
+    templateRedEmphasisSubtitle: '红色强调副标题',
+    layersTitle: '图层',
+    noLayers: '暂无文本图层',
+    addLayer: '添加文字图层',
     styleNone: '无背景',
     styleOrange3d: '橙色立体',
     styleBlackQuote: '黑底黄引',
@@ -81,8 +97,10 @@ export const i18n = {
     styleUnderline: '下划线',
     styleBlueGlow: '蓝色发光',
     styleBrackets: '直角括号',
+    styleGoldNewsTitle: '金色新闻',
+    styleRedEmphasisSubtitle: '红色强调',
     stylePreview: '样式预览',
-  }
+  },
 };
 
 export const aspectRatios = {
@@ -91,6 +109,24 @@ export const aspectRatios = {
   '1:1': { w: 1080, h: 1080, labelKey: 'square' },
   '4:3': { w: 1440, h: 1080, labelKey: 'standard' },
 };
+
+export interface TextLayer {
+  id: string;
+  name: string;
+  text: string;
+  styleId: string;
+  fontSize: number;
+  color: string;
+  fontFamily: string;
+  fontWeight: string;
+  fontStyle: string;
+  textDecoration: string;
+  textAlign: 'left' | 'center' | 'right';
+  strokeColor: string;
+  strokeWidth: number;
+  x: number;
+  y: number;
+}
 
 export const TEXT_BG_STYLES = [
   { id: 'none', nameKey: 'styleNone' },
