@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { motion } from 'motion/react';
 import { toPng } from 'html-to-image';
 import { Upload, Download, Image as ImageIcon, Type, Palette, RotateCcw } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
@@ -145,6 +144,42 @@ const useVideoThumbnails = (videoUrl: string | null, count: number = 8) => {
   return { thumbnails, isGenerating };
 };
 
+const ResizeHandle = React.memo(({ position, onResizeStart }: {
+  position: string;
+  onResizeStart: (e: React.PointerEvent, position: string) => void;
+}) => {
+  const getCursor = () => {
+    switch (position) {
+      case 'top': case 'bottom': return 'ns-resize';
+      case 'left': case 'right': return 'ew-resize';
+      case 'top-left': case 'bottom-right': return 'nwse-resize';
+      case 'top-right': case 'bottom-left': return 'nesw-resize';
+      default: return 'pointer';
+    }
+  };
+
+  const isEdge = position === 'top' || position === 'bottom' || position === 'left' || position === 'right';
+
+  return (
+    <div
+      className={cn(
+        "absolute bg-white border-[3px] border-blue-500 rounded-full shadow-md z-50",
+        isEdge ? "w-5 h-5" : "w-6 h-6",
+        position === 'top-left' && "-top-3 -left-3",
+        position === 'top-right' && "-top-3 -right-3",
+        position === 'bottom-left' && "-bottom-3 -left-3",
+        position === 'bottom-right' && "-bottom-3 -right-3",
+        position === 'top' && "-top-3 left-1/2 -translate-x-1/2",
+        position === 'bottom' && "-bottom-3 left-1/2 -translate-x-1/2",
+        position === 'left' && "-left-3 top-1/2 -translate-y-1/2",
+        position === 'right' && "-right-3 top-1/2 -translate-y-1/2",
+      )}
+      style={{ cursor: getCursor() }}
+      onPointerDown={(e) => onResizeStart(e, position)}
+    />
+  );
+});
+
 export default function CoverEditor() {
   const [lang, setLang] = useState<'en' | 'zh'>('en');
   const t = i18n[lang];
@@ -179,6 +214,8 @@ export default function CoverEditor() {
       strokeWidth: 0,
       x: 0,
       y: 0,
+      scaleX: 1,
+      scaleY: 1,
     },
   ]);
   const [activeLayerId, setActiveLayerId] = useState<string>('1');
@@ -209,6 +246,8 @@ export default function CoverEditor() {
     strokeWidth: 0,
     x: 0,
     y: 0,
+    scaleX: 1,
+    scaleY: 1,
   });
 
   const [projects, setProjects] = useState<Project[]>([]);
@@ -217,10 +256,11 @@ export default function CoverEditor() {
   const containerRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const currentBgRef = useRef<string | null>(null);
+  const layerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const verticalGuideRef = useRef<HTMLDivElement>(null);
+  const horizontalGuideRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [isSelected, setIsSelected] = useState(false);
-  const [showVerticalGuide, setShowVerticalGuide] = useState(false);
-  const [showHorizontalGuide, setShowHorizontalGuide] = useState(false);
 
   const [bgPosX, setBgPosX] = useState(50);
   const [bgPosY, setBgPosY] = useState(50);
@@ -319,7 +359,11 @@ export default function CoverEditor() {
     setBgScale(c.bgScale ?? 1);
 
     if (c.layers && Array.isArray(c.layers) && c.layers.length > 0) {
-      setLayers(c.layers);
+      setLayers((c.layers as TextLayer[]).map(l => ({
+        ...l,
+        scaleX: l.scaleX ?? 1,
+        scaleY: l.scaleY ?? 1,
+      })));
       setActiveLayerId(c.activeLayerId || c.layers[0].id);
     } else {
       const fallbackLayer: TextLayer = {
@@ -338,6 +382,8 @@ export default function CoverEditor() {
         strokeWidth: c.strokeWidth || 0,
         x: c.x || 0,
         y: c.y || 0,
+        scaleX: 1,
+        scaleY: 1,
       };
       setLayers([fallbackLayer]);
       setActiveLayerId('1');
@@ -369,6 +415,8 @@ export default function CoverEditor() {
         strokeWidth: 0,
         x: 0,
         y: 0,
+        scaleX: 1,
+        scaleY: 1,
       },
     ]);
     setActiveLayerId('1');
@@ -410,49 +458,71 @@ export default function CoverEditor() {
     }
   }, [lang]);
 
+  // 拖动：直接操作 DOM，不触发 React 重渲染，pointerup 时才同步 state
   const handleDragStart = (e: React.PointerEvent, targetLayer?: TextLayer) => {
     if (e.button !== 0) return;
-    
     e.stopPropagation();
     setIsSelected(true);
 
     const layer = targetLayer || activeLayer;
     if (!layer) return;
-    
+
+    const el = layerRefs.current.get(layer.id);
+    if (!el) return;
+
     const startX = e.clientX;
     const startY = e.clientY;
     const startPosX = layer.x;
     const startPosY = layer.y;
+    const sx = layer.scaleX;
+    const sy = layer.scaleY;
+
+    let pendingX = startPosX;
+    let pendingY = startPosY;
+    let rafId = 0;
+
+    const applyTransform = () => {
+      el.style.transform = `translate(${pendingX}px, ${pendingY}px) scale(${sx}, ${sy})`;
+    };
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = (moveEvent.clientX - startX) / scale;
       const deltaY = (moveEvent.clientY - startY) / scale;
-      
+
       let newX = startPosX + deltaX;
       let newY = startPosY + deltaY;
-      
+
       const SNAP_THRESHOLD = 30;
-      
       if (Math.abs(newX) < SNAP_THRESHOLD) {
         newX = 0;
-        setShowVerticalGuide(true);
+        if (verticalGuideRef.current) verticalGuideRef.current.style.opacity = '1';
       } else {
-        setShowVerticalGuide(false);
+        if (verticalGuideRef.current) verticalGuideRef.current.style.opacity = '0';
       }
-      
       if (Math.abs(newY) < SNAP_THRESHOLD) {
         newY = 0;
-        setShowHorizontalGuide(true);
+        if (horizontalGuideRef.current) horizontalGuideRef.current.style.opacity = '1';
       } else {
-        setShowHorizontalGuide(false);
+        if (horizontalGuideRef.current) horizontalGuideRef.current.style.opacity = '0';
       }
-      
-      updateLayer(layer.id, { x: newX, y: newY });
+
+      pendingX = newX;
+      pendingY = newY;
+
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          applyTransform();
+        });
+      }
     };
 
     const handlePointerUp = () => {
-      setShowVerticalGuide(false);
-      setShowHorizontalGuide(false);
+      if (rafId) cancelAnimationFrame(rafId);
+      applyTransform();
+      updateLayer(layer.id, { x: pendingX, y: pendingY });
+      if (verticalGuideRef.current) verticalGuideRef.current.style.opacity = '0';
+      if (horizontalGuideRef.current) horizontalGuideRef.current.style.opacity = '0';
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
@@ -461,84 +531,73 @@ export default function CoverEditor() {
     window.addEventListener('pointerup', handlePointerUp);
   };
 
+  // 缩放：直接操作 DOM，pointerup 时才同步 state
   const handleResizeStart = (e: React.PointerEvent, position: string) => {
     e.stopPropagation();
     if (!activeLayer) return;
 
+    const el = layerRefs.current.get(activeLayer.id);
+    if (!el) return;
+
     const startX = e.clientX;
     const startY = e.clientY;
-    const startFontSize = activeLayer.fontSize;
-    const startWidth = Math.max(1, activeLayer.fontSize * activeLayer.text.length * 0.6);
-    const startHeight = activeLayer.fontSize * 1.3;
-    const startPosX = activeLayer.x;
-    const startPosY = activeLayer.y;
+    const startScaleX = activeLayer.scaleX;
+    const startScaleY = activeLayer.scaleY;
+    const layerX = activeLayer.x;
+    const layerY = activeLayer.y;
+    // 使用未缩放的原始尺寸作为基准
+    const baseWidth = Math.max(1, activeLayer.fontSize * (activeLayer.text.split('\n')[0]?.length || 1) * 0.6);
+    const baseHeight = Math.max(1, activeLayer.fontSize * 1.3 * (activeLayer.text.split('\n').length || 1));
+
+    const isLeft = position.includes('left');
+    const isRight = position.includes('right');
+    const isTop = position.includes('top');
+    const isBottom = position.includes('bottom');
+
+    let pendingX = startScaleX;
+    let pendingY = startScaleY;
+    let rafId = 0;
+
+    const applyTransform = () => {
+      el.style.transform = `translate(${layerX}px, ${layerY}px) scale(${pendingX}, ${pendingY})`;
+    };
 
     const handlePointerMove = (moveEvent: PointerEvent) => {
       const deltaX = (moveEvent.clientX - startX) / scale;
-      
-      let widthDelta = 0;
-      if (position === 'bottom-right' || position === 'top-right') widthDelta = deltaX;
-      if (position === 'bottom-left' || position === 'top-left') widthDelta = -deltaX;
+      const deltaY = (moveEvent.clientY - startY) / scale;
 
-      const scaleFactor = Math.max(0.1, 1 + widthDelta / startWidth);
-      const newFontSize = startFontSize * scaleFactor;
-
-      const widthDiff = startWidth * (scaleFactor - 1);
-      const heightDiff = startHeight * (scaleFactor - 1);
-
-      let newX = startPosX;
-      let newY = startPosY;
-
-      if (position === 'bottom-right') {
-        newX = startPosX + widthDiff / 2;
-        newY = startPosY + heightDiff / 2;
-      } else if (position === 'bottom-left') {
-        newX = startPosX - widthDiff / 2;
-        newY = startPosY + heightDiff / 2;
-      } else if (position === 'top-right') {
-        newX = startPosX + widthDiff / 2;
-        newY = startPosY - heightDiff / 2;
-      } else if (position === 'top-left') {
-        newX = startPosX - widthDiff / 2;
-        newY = startPosY - heightDiff / 2;
+      if (isRight) {
+        pendingX = Math.max(0.1, startScaleX + deltaX / baseWidth);
+      } else if (isLeft) {
+        pendingX = Math.max(0.1, startScaleX - deltaX / baseWidth);
+      }
+      if (isBottom) {
+        pendingY = Math.max(0.1, startScaleY + deltaY / baseHeight);
+      } else if (isTop) {
+        pendingY = Math.max(0.1, startScaleY - deltaY / baseHeight);
       }
 
-      updateActiveLayer({
-        fontSize: Math.max(20, Math.round(newFontSize)),
-        x: newX,
-        y: newY,
-      });
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          applyTransform();
+        });
+      }
     };
 
     const handlePointerUp = () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      applyTransform();
+      updateActiveLayer({
+        scaleX: Math.round(pendingX * 100) / 100,
+        scaleY: Math.round(pendingY * 100) / 100,
+      });
       window.removeEventListener('pointermove', handlePointerMove);
       window.removeEventListener('pointerup', handlePointerUp);
     };
 
     window.addEventListener('pointermove', handlePointerMove);
     window.addEventListener('pointerup', handlePointerUp);
-  };
-
-  const ResizeHandle = ({ position }: { position: string }) => {
-    const getCursor = () => {
-      if (position === 'top-left' || position === 'bottom-right') return 'nwse-resize';
-      if (position === 'top-right' || position === 'bottom-left') return 'nesw-resize';
-      return 'pointer';
-    };
-
-    return (
-      <div
-        className={cn(
-          "absolute w-6 h-6 bg-white border-[3px] border-blue-500 rounded-full shadow-md z-50",
-          position === 'top-left' && "-top-3 -left-3",
-          position === 'top-right' && "-top-3 -right-3",
-          position === 'bottom-left' && "-bottom-3 -left-3",
-          position === 'bottom-right' && "-bottom-3 -right-3",
-        )}
-        style={{ cursor: getCursor() }}
-        onPointerDown={(e) => handleResizeStart(e, position)}
-      />
-    );
   };
 
   const resetBgTransform = () => {
@@ -656,6 +715,8 @@ export default function CoverEditor() {
         textAlign: 'center',
         strokeColor: 'transparent',
         strokeWidth: 0,
+        scaleX: 1,
+        scaleY: 1,
       });
     } else if (templateId === 'gold-news-title') {
       updateActiveLayer({
@@ -801,34 +862,38 @@ export default function CoverEditor() {
                 />
               )}
               
-              {/* Center Guides */}
-              {showVerticalGuide && (
-                <div className="absolute top-0 bottom-0 left-1/2 w-0 border-l-2 border-dashed border-cyan-400 -translate-x-1/2 z-10 pointer-events-none shadow-[0_0_4px_rgba(0,255,255,0.5)]" />
-              )}
-              {showHorizontalGuide && (
-                <div className="absolute left-0 right-0 top-1/2 h-0 border-t-2 border-dashed border-cyan-400 -translate-y-1/2 z-10 pointer-events-none shadow-[0_0_4px_rgba(0,255,255,0.5)]" />
-              )}
+              {/* Center Guides (toggled via ref to avoid re-renders during drag) */}
+              <div ref={verticalGuideRef} className="absolute top-0 bottom-0 left-1/2 w-0 border-l-2 border-dashed border-cyan-400 -translate-x-1/2 z-10 pointer-events-none shadow-[0_0_4px_rgba(0,255,255,0.5)]" style={{ opacity: 0 }} />
+              <div ref={horizontalGuideRef} className="absolute left-0 right-0 top-1/2 h-0 border-t-2 border-dashed border-cyan-400 -translate-y-1/2 z-10 pointer-events-none shadow-[0_0_4px_rgba(0,255,255,0.5)]" style={{ opacity: 0 }} />
               
               <div 
                 className="absolute inset-0 pointer-events-none z-20"
                 onPointerDown={() => setIsSelected(false)}
               >
                 {layers.map(layer => (
-                  <motion.div
-                    key={layer.id}
-                    style={{ x: layer.x, y: layer.y, willChange: isSelected && activeLayerId === layer.id ? 'transform' : 'auto' }}
-                    onPointerDown={(e) => { setActiveLayerId(layer.id); handleDragStart(e, layer); }}
-                    className={cn(
-                      "absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 cursor-move pointer-events-auto",
-                      isSelected && activeLayerId === layer.id && "ring-2 ring-blue-500 ring-offset-4 ring-offset-transparent"
-                    )}
-                  >
+                  <div key={layer.id} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                    <div
+                      ref={(el) => {
+                        if (el) layerRefs.current.set(layer.id, el);
+                        else layerRefs.current.delete(layer.id);
+                      }}
+                      style={{
+                        transform: `translate(${layer.x}px, ${layer.y}px) scale(${layer.scaleX}, ${layer.scaleY})`,
+                        transformOrigin: 'center',
+                        willChange: isSelected && activeLayerId === layer.id ? 'transform' : 'auto',
+                      }}
+                      onPointerDown={(e) => { setActiveLayerId(layer.id); handleDragStart(e, layer); }}
+                      className={cn(
+                        "relative cursor-move pointer-events-auto select-none touch-none",
+                        isSelected && activeLayerId === layer.id && "ring-2 ring-blue-500 ring-offset-4 ring-offset-transparent"
+                      )}
+                    >
                     <div className="pointer-events-none">
-                      <TextOverlay 
-                        text={layer.text} 
-                        styleId={layer.styleId} 
-                        fontSize={layer.fontSize} 
-                        color={layer.color} 
+                      <TextOverlay
+                        text={layer.text}
+                        styleId={layer.styleId}
+                        fontSize={layer.fontSize}
+                        color={layer.color}
                         fontFamily={layer.fontFamily}
                         fontWeight={layer.fontWeight}
                         fontStyle={layer.fontStyle}
@@ -838,16 +903,21 @@ export default function CoverEditor() {
                         strokeWidth={layer.strokeWidth}
                       />
                     </div>
-                    
+
                     {isSelected && activeLayerId === layer.id && (
                       <>
-                        <ResizeHandle position="top-left" />
-                        <ResizeHandle position="top-right" />
-                        <ResizeHandle position="bottom-left" />
-                        <ResizeHandle position="bottom-right" />
+                        <ResizeHandle position="top-left" onResizeStart={handleResizeStart} />
+                        <ResizeHandle position="top-right" onResizeStart={handleResizeStart} />
+                        <ResizeHandle position="bottom-left" onResizeStart={handleResizeStart} />
+                        <ResizeHandle position="bottom-right" onResizeStart={handleResizeStart} />
+                        <ResizeHandle position="top" onResizeStart={handleResizeStart} />
+                        <ResizeHandle position="bottom" onResizeStart={handleResizeStart} />
+                        <ResizeHandle position="left" onResizeStart={handleResizeStart} />
+                        <ResizeHandle position="right" onResizeStart={handleResizeStart} />
                       </>
                     )}
-                  </motion.div>
+                  </div>
+                  </div>
                 ))}
               </div>
             </div>

@@ -187,6 +187,8 @@ export interface TextLayer {
   strokeWidth: number;
   x: number;
   y: number;
+  scaleX: number;
+  scaleY: number;
 }
 
 export const TEXT_BG_STYLES = [
