@@ -105,6 +105,65 @@ export const i18n = {
   },
 };
 
+export interface FontOption {
+  value: string;
+  label: string;
+}
+
+export interface FontGroup {
+  labelEn: string;
+  labelZh: string;
+  fonts: FontOption[];
+}
+
+export const FONT_GROUPS: FontGroup[] = [
+  {
+    labelEn: 'General',
+    labelZh: '通用字体',
+    fonts: [
+      { value: 'sans-serif', label: 'Sans Serif' },
+      { value: 'serif', label: 'Serif' },
+      { value: 'monospace', label: 'Monospace' },
+      { value: 'Inter', label: 'Inter' },
+      { value: 'Arial', label: 'Arial' },
+    ],
+  },
+  {
+    labelEn: 'Basic CJK',
+    labelZh: '基础中文字体',
+    fonts: [
+      { value: 'Noto Sans SC', label: '思源黑体 Noto Sans SC' },
+      { value: 'Noto Serif SC', label: '思源宋体 Noto Serif SC' },
+      { value: 'Alibaba PuHuiTi', label: '阿里巴巴普惠体' },
+      { value: 'LXGW WenKai Screen', label: '霞鹜文楷' },
+    ],
+  },
+  {
+    labelEn: 'Title / Creative',
+    labelZh: '标题/创意字体',
+    fonts: [
+      { value: 'Smiley Sans', label: '得意黑 Smiley Sans' },
+      { value: 'ZCOOL QingKe HuangYou', label: '站酷庆科黄油体' },
+      { value: '优设标题黑', label: '优设标题黑' },
+      { value: '站酷高端黑', label: '站酷高端黑' },
+      { value: '站酷酷黑', label: '站酷酷黑' },
+      { value: '庞门正道标题体', label: '庞门正道标题体' },
+      { value: '庞门正道粗书体', label: '庞门正道粗书体' },
+      { value: '抖音美好体', label: '抖音美好体' },
+    ],
+  },
+  {
+    labelEn: 'Handwriting / Kai',
+    labelZh: '手写/楷体',
+    fonts: [
+      { value: 'Ma Shan Zheng', label: '马善政楷书' },
+      { value: 'Zhi Mang Xing', label: '志莽行书' },
+      { value: 'Long Cang', label: '龙藏体' },
+      { value: '江西拙楷', label: '江西拙楷' },
+    ],
+  },
+];
+
 export const aspectRatios = {
   '16:9': { w: 1920, h: 1080, labelKey: 'landscape' },
   '9:16': { w: 1080, h: 1920, labelKey: 'portrait' },

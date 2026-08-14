@@ -9,7 +9,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-import { i18n, aspectRatios, TEXT_BG_STYLES, TextLayer } from '../constants/editor';
+import { i18n, aspectRatios, TEXT_BG_STYLES, TextLayer, FONT_GROUPS } from '../constants/editor';
 import { TextOverlay } from './editor/TextOverlay';
 import { LayerListSidebar } from './ProjectHistorySidebar';
 
@@ -1162,13 +1162,13 @@ export default function CoverEditor() {
                   onChange={(e) => updateActiveLayer({ fontFamily: e.target.value })}
                   className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                 >
-                  <option value="sans-serif">Sans Serif</option>
-                  <option value="serif">Serif</option>
-                  <option value="monospace">Monospace</option>
-                  <option value="Inter">Inter</option>
-                  <option value="Arial">Arial</option>
-                  <option value="Times New Roman">Times New Roman</option>
-                  <option value="Courier New">Courier New</option>
+                  {FONT_GROUPS.map(group => (
+                    <optgroup key={group.labelEn} label={lang === 'zh' ? group.labelZh : group.labelEn}>
+                      {group.fonts.map(font => (
+                        <option key={font.value} value={font.value}>{font.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
                 </select>
               </div>
 
