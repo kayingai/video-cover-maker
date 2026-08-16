@@ -3,7 +3,8 @@ import { cn } from '../CoverEditor';
 
 const get3DShadow = (depth: number, color: string) => {
   const shadow = [];
-  for (let i = 1; i <= depth; i++) {
+  const capped = Math.min(depth, 24);
+  for (let i = 1; i <= capped; i++) {
     shadow.push(`${i}px ${i}px 0px ${color}`);
   }
   return shadow.join(', ');
@@ -23,7 +24,7 @@ interface TextOverlayProps {
   strokeWidth?: number;
 }
 
-export const TextOverlay: React.FC<TextOverlayProps> = ({ 
+export const TextOverlay: React.FC<TextOverlayProps> = React.memo(({
   text, styleId, fontSize, color,
   fontFamily = 'sans-serif',
   fontWeight = '900',
@@ -180,4 +181,4 @@ export const TextOverlay: React.FC<TextOverlayProps> = ({
         </div>
       );
   }
-};
+});

@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { toPng } from 'html-to-image';
-import { Upload, Download, Image as ImageIcon, Type, Palette, RotateCcw } from 'lucide-react';
+import { Upload, Download, Image as ImageIcon, Type, Palette, RotateCcw, LayoutTemplate } from 'lucide-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -8,7 +8,7 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-import { i18n, aspectRatios, TEXT_BG_STYLES, TextLayer, FONT_GROUPS } from '../constants/editor';
+import { i18n, aspectRatios, TEXT_BG_STYLES, TextLayer, FONT_GROUPS, COVER_TEMPLATES } from '../constants/editor';
 import { TextOverlay } from './editor/TextOverlay';
 import { LayerListSidebar } from './ProjectHistorySidebar';
 
@@ -180,11 +180,65 @@ const ResizeHandle = React.memo(({ position, onResizeStart }: {
   );
 });
 
+const TEMPLATE_PREVIEW_W = 170;
+const TEMPLATE_PREVIEW_H = 110;
+
+const TemplateCard = React.memo(({ tpl, lang, onApply }: {
+  tpl: typeof COVER_TEMPLATES[number];
+  lang: 'en' | 'zh';
+  onApply: (id: string) => void;
+}) => {
+  const dims = aspectRatios[tpl.ratio];
+  // 按模板真实分辨率等比缩放，直接用小字号渲染（避免大字号+多层阴影的渲染开销）
+  const previewW = Math.min(TEMPLATE_PREVIEW_W, TEMPLATE_PREVIEW_H * dims.w / dims.h);
+  const previewH = previewW * dims.h / dims.w;
+  const scale = (previewW / dims.w) * 1.2;
+  const main = tpl.layers[0];
+  return (
+    <button
+      onClick={() => onApply(tpl.id)}
+      className="rounded-xl border border-white/10 hover:border-[#00FF66]/60 overflow-hidden transition-colors"
+    >
+      <div className="h-32 flex items-center justify-center bg-[#0A0A0A] overflow-hidden">
+        <div
+          className="relative flex items-center justify-center overflow-hidden rounded"
+          style={{
+            backgroundColor: tpl.bgColor,
+            width: previewW,
+            height: previewH,
+          }}
+        >
+          <div className="pointer-events-none">
+            <TextOverlay
+              text={main.text}
+              styleId={main.styleId}
+              fontSize={Math.max(8, Math.round(main.fontSize * scale))}
+              color={main.color}
+              fontFamily={main.fontFamily}
+              fontWeight={main.fontWeight}
+              fontStyle={main.fontStyle}
+              textDecoration={main.textDecoration}
+              textAlign={main.textAlign}
+              strokeColor={main.strokeColor}
+              strokeWidth={main.strokeWidth}
+            />
+          </div>
+        </div>
+      </div>
+      <div className="px-2 py-1.5 bg-[#141414] text-left">
+        <span className="text-xs text-neutral-300 font-medium block truncate">{lang === 'zh' ? tpl.nameZh : tpl.nameEn}</span>
+        <span className="text-[10px] text-neutral-500">{dims.w}x{dims.h}</span>
+      </div>
+    </button>
+  );
+});
+TemplateCard.displayName = 'TemplateCard';
+
 export default function CoverEditor() {
   const [lang, setLang] = useState<'en' | 'zh'>('en');
   const t = i18n[lang];
 
-  const [activeTab, setActiveTab] = useState<'background' | 'text' | 'style'>('background');
+  const [activeTab, setActiveTab] = useState<'template' | 'background' | 'text' | 'style'>('template');
   
   const [bgType, setBgType] = useState<'color' | 'image' | 'video'>('color');
   const [bgColor, setBgColor] = useState('#1a1a1a');
@@ -289,19 +343,9 @@ export default function CoverEditor() {
 
   const handleSaveCurrentProject = async () => {
     if (!exportRef.current) return;
-    
-    let thumbnail = '';
-    try {
-      thumbnail = await toPng(exportRef.current, {
-        quality: 0.1,
-        pixelRatio: 0.1,
-        cacheBust: true,
-        // @ts-ignore
-        useCORS: true,
-      });
-    } catch (e) {
-      console.warn('Failed to generate thumbnail', e);
-    }
+
+    // 项目历史无展示入口，自动保存不再生成缩略图（toPng 全画布序列化是主要卡顿来源）
+    const thumbnail = '';
 
     const config = {
       bgType, bgColor, bgImage, videoUrl, videoTime,
@@ -341,9 +385,16 @@ export default function CoverEditor() {
   useEffect(() => {
     const timer = setTimeout(() => {
       handleSaveCurrentProject();
-    }, 2000);
+    }, 3000);
     return () => clearTimeout(timer);
   }, [bgType, bgColor, bgImage, videoUrl, videoTime, ratio, layers, activeLayerId, bgScale, bgTransformTick]);
+
+  // 限制历史项目数量，避免 localStorage 读写随时间变慢
+  useEffect(() => {
+    if (projects.length > 8) {
+      saveProjects(projects.slice(0, 8));
+    }
+  }, [projects]);
 
   const handleLoadProject = (project: Project) => {
     setCurrentProjectId(project.id);
@@ -749,6 +800,31 @@ export default function CoverEditor() {
     }
   };
 
+  const applyCoverTemplate = useCallback((templateId: string) => {
+    const tpl = COVER_TEMPLATES.find(t => t.id === templateId);
+    if (!tpl) return;
+    setBgType('color');
+    setBgColor(tpl.bgColor);
+    setBgImage(null);
+    setVideoUrl(null);
+    setVideoTime(0);
+    setRatio(tpl.ratio);
+    // 模板字号已按目标分辨率设计，跳过切换比例时的自动缩放
+    prevRatioRef.current = tpl.ratio;
+    const newLayers = tpl.layers.map((l, i) => ({
+      ...l,
+      id: Math.random().toString(36).substring(2, 9),
+      // 图层名取文案首行，与左侧图层列表中的素材一一对应
+      name: l.text.split('\n')[0].slice(0, 10) || `Text ${i + 1}`,
+    }));
+    setLayers(newLayers);
+    setActiveLayerId(newLayers[0]?.id || '');
+    setIsSelected(false);
+    setBgPosX(50);
+    setBgPosY(50);
+    setBgScale(1);
+  }, []);
+
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -953,6 +1029,7 @@ export default function CoverEditor() {
         {/* Tabs */}
         <div className="flex border-b border-white/10">
           {[
+            { id: 'template', label: t.templateTab, icon: LayoutTemplate },
             { id: 'background', label: t.bgTab, icon: ImageIcon },
             { id: 'text', label: t.textTab, icon: Type },
             { id: 'style', label: t.styleTab, icon: Palette }
@@ -961,30 +1038,50 @@ export default function CoverEditor() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id as any)}
               className={cn(
-                "flex-1 py-4 text-sm font-medium transition-colors flex items-center justify-center gap-2",
+                "flex-1 py-3 text-xs lg:text-sm font-medium transition-colors flex items-center justify-center gap-1.5",
                 activeTab === tab.id ? "text-white border-b-2 border-white" : "text-neutral-500 hover:text-neutral-300"
               )}
             >
-              <tab.icon size={16} />
+              <tab.icon size={15} />
               {tab.label}
             </button>
           ))}
         </div>
-        
+
         {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto p-4">
+          {activeTab === 'template' && (
+            <div className="space-y-4">
+              {(['bilibili', 'tiktok', 'wechat', 'xhs'] as const).map(platform => {
+                const templates = COVER_TEMPLATES.filter(tpl => tpl.platform === platform);
+                if (!templates.length) return null;
+                const key = templates[0].platformKey;
+                return (
+                  <div key={platform}>
+                    <label className="block text-xs font-semibold text-neutral-500 mb-2 uppercase tracking-wide">{(t as any)[key]}</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {templates.map(tpl => (
+                        <TemplateCard key={tpl.id} tpl={tpl} lang={lang} onApply={applyCoverTemplate} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {activeTab === 'background' && (
-            <div className="space-y-8">
+            <div className="space-y-4">
               {/* Ratio Selector */}
               <div>
-                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.ratio}</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-2">{t.ratio}</label>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.entries(aspectRatios).map(([key, val]) => (
                     <button
                       key={key}
                       onClick={() => setRatio(key as any)}
                       className={cn(
-                        "py-3 rounded-xl text-sm font-medium transition-colors border",
+                        "py-2 rounded-xl text-xs font-medium transition-colors border",
                         ratio === key ? "bg-[#00FF66]/10 text-[#00FF66] border-[#00FF66]" : "bg-[#0A0A0A] text-neutral-400 border-white/10 hover:bg-white/5"
                       )}
                     >
@@ -996,9 +1093,9 @@ export default function CoverEditor() {
 
               {/* Upload */}
               <div>
-                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.uploadTitle}</label>
-                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-white/10 rounded-xl hover:border-[#00FF66]/50 hover:bg-[#00FF66]/5 transition-colors cursor-pointer bg-[#0A0A0A]">
-                  <Upload className="w-8 h-8 text-neutral-500 mb-2" />
+                <label className="block text-xs font-medium text-neutral-400 mb-2">{t.uploadTitle}</label>
+                <label className="flex flex-col items-center justify-center w-full h-24 border-2 border-dashed border-white/10 rounded-xl hover:border-[#00FF66]/50 hover:bg-[#00FF66]/5 transition-colors cursor-pointer bg-[#0A0A0A]">
+                  <Upload className="w-6 h-6 text-neutral-500 mb-1" />
                   <span className="text-sm text-neutral-400">{t.uploadDesc}</span>
                   <input 
                     type="file" 
@@ -1084,14 +1181,14 @@ export default function CoverEditor() {
               {/* Background Color Fallback */}
               {bgType === 'color' && (
                 <div>
-                  <label className="block text-sm font-medium text-neutral-400 mb-3">{t.solidColor}</label>
+                  <label className="block text-xs font-medium text-neutral-400 mb-2">{t.solidColor}</label>
                   <div className="flex gap-2">
                     {['#1a1a1a', '#FF5A1F', '#6366F1', '#10B981', '#F59E0B', '#EF4444'].map(c => (
                       <button
                         key={c}
                         onClick={() => setBgColor(c)}
                         className={cn(
-                          "w-10 h-10 rounded-full border-2",
+                          "w-8 h-8 rounded-full border-2",
                           bgColor === c ? "border-[#00FF66] scale-110" : "border-transparent hover:scale-110"
                         )}
                         style={{ backgroundColor: c }}
@@ -1104,32 +1201,32 @@ export default function CoverEditor() {
           )}
 
           {activeTab === 'text' && activeLayer && (
-            <div className="space-y-8">
+            <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.coverText}</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-2">{t.coverText}</label>
                 <textarea
                   value={activeLayer.text}
                   onChange={(e) => updateActiveLayer({ text: e.target.value })}
-                  className="w-full h-32 bg-[#0A0A0A] border border-white/10 rounded-xl p-4 text-white placeholder-neutral-500 focus:outline-none focus:border-[#00FF66] resize-none transition-colors"
+                  className="w-full h-24 bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#00FF66] resize-none transition-colors"
                   placeholder={t.textPlaceholder}
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textTemplates}</label>
-                <div className="grid grid-cols-3 gap-3">
+                <label className="block text-xs font-medium text-neutral-400 mb-2">{t.textTemplates}</label>
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     onClick={() => applyTextTemplate('default')}
                     className={cn(
-                      "h-28 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
+                      "h-24 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
                       activeLayer.styleId === 'none' ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
                     )}
                   >
-                    <div className="scale-[0.16] origin-center pointer-events-none absolute">
+                    <div className="pointer-events-none">
                       <TextOverlay
                         text={t.templateDefault}
                         styleId="none"
-                        fontSize={100}
+                        fontSize={16}
                         color="#ffffff"
                         fontFamily="sans-serif"
                         fontWeight="900"
@@ -1145,15 +1242,15 @@ export default function CoverEditor() {
                   <button
                     onClick={() => applyTextTemplate('gold-news-title')}
                     className={cn(
-                      "h-28 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
+                      "h-24 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
                       activeLayer.styleId === 'gold-news-title' ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
                     )}
                   >
-                    <div className="scale-[0.16] origin-center pointer-events-none absolute">
+                    <div className="pointer-events-none">
                       <TextOverlay
                         text={t.templateGoldNewsTitle}
                         styleId="gold-news-title"
-                        fontSize={100}
+                        fontSize={16}
                         color="#FFD700"
                         fontFamily="sans-serif"
                         fontWeight="900"
@@ -1161,7 +1258,7 @@ export default function CoverEditor() {
                         textDecoration="none"
                         textAlign="center"
                         strokeColor="#000000"
-                        strokeWidth={6}
+                        strokeWidth={1}
                       />
                     </div>
                     <span className="absolute bottom-2 text-xs text-neutral-400 font-medium">{t.templateGoldNewsTitle}</span>
@@ -1169,15 +1266,15 @@ export default function CoverEditor() {
                   <button
                     onClick={() => applyTextTemplate('red-emphasis-subtitle')}
                     className={cn(
-                      "h-28 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
+                      "h-24 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
                       activeLayer.styleId === 'red-emphasis-subtitle' ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
                     )}
                   >
-                    <div className="scale-[0.16] origin-center pointer-events-none absolute">
+                    <div className="pointer-events-none">
                       <TextOverlay
                         text={t.templateRedEmphasisSubtitle}
                         styleId="red-emphasis-subtitle"
-                        fontSize={100}
+                        fontSize={16}
                         color="#FF1A1A"
                         fontFamily="sans-serif"
                         fontWeight="900"
@@ -1185,7 +1282,7 @@ export default function CoverEditor() {
                         textDecoration="none"
                         textAlign="center"
                         strokeColor="#000000"
-                        strokeWidth={6}
+                        strokeWidth={1}
                       />
                     </div>
                     <span className="absolute bottom-2 text-xs text-neutral-400 font-medium">{t.templateRedEmphasisSubtitle}</span>
@@ -1194,7 +1291,7 @@ export default function CoverEditor() {
               </div>
               
               <div>
-                <label className="flex justify-between text-sm font-medium text-neutral-400 mb-3">
+                <label className="flex justify-between text-xs font-medium text-neutral-400 mb-2">
                   <span>{t.fontSize}</span>
                   <span>{activeLayer.fontSize}px</span>
                 </label>
@@ -1209,14 +1306,14 @@ export default function CoverEditor() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textColor}</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-2">{t.textColor}</label>
                 <div className="flex gap-2">
                   {['#ffffff', '#000000', '#FF5A1F', '#FFD700', '#4F46E5', '#10B981'].map(c => (
                     <button
                       key={c}
                       onClick={() => updateActiveLayer({ color: c })}
                       className={cn(
-                        "w-10 h-10 rounded-full border-2",
+                        "w-8 h-8 rounded-full border-2",
                         activeLayer.color === c ? "border-[#00FF66] scale-110" : "border-transparent hover:scale-110"
                       )}
                       style={{ backgroundColor: c }}
@@ -1226,11 +1323,11 @@ export default function CoverEditor() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.fontFamily}</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-2">{t.fontFamily}</label>
                 <select
                   value={activeLayer.fontFamily}
                   onChange={(e) => updateActiveLayer({ fontFamily: e.target.value })}
-                  className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
+                  className="w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                 >
                   {FONT_GROUPS.map(group => (
                     <optgroup key={group.labelEn} label={lang === 'zh' ? group.labelZh : group.labelEn}>
@@ -1242,13 +1339,13 @@ export default function CoverEditor() {
                 </select>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="block text-sm font-medium text-neutral-400 mb-3">{t.fontWeight}</label>
+                  <label className="block text-xs font-medium text-neutral-400 mb-2">{t.fontWeight}</label>
                   <select
                     value={activeLayer.fontWeight}
                     onChange={(e) => updateActiveLayer({ fontWeight: e.target.value })}
-                    className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
+                    className="w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                   >
                     <option value="normal">Normal</option>
                     <option value="bold">Bold</option>
@@ -1256,22 +1353,22 @@ export default function CoverEditor() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-neutral-400 mb-3">{t.fontStyle}</label>
+                  <label className="block text-xs font-medium text-neutral-400 mb-2">{t.fontStyle}</label>
                   <select
                     value={activeLayer.fontStyle}
                     onChange={(e) => updateActiveLayer({ fontStyle: e.target.value })}
-                    className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
+                    className="w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                   >
                     <option value="normal">Normal</option>
                     <option value="italic">Italic</option>
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textDecoration}</label>
+                  <label className="block text-xs font-medium text-neutral-400 mb-2">{t.textDecoration}</label>
                   <select
                     value={activeLayer.textDecoration}
                     onChange={(e) => updateActiveLayer({ textDecoration: e.target.value })}
-                    className="w-full bg-[#0A0A0A] border border-white/10 rounded-xl p-3 text-white focus:outline-none focus:border-[#00FF66] transition-colors"
+                    className="w-full bg-[#0A0A0A] border border-white/10 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#00FF66] transition-colors"
                   >
                     <option value="none">None</option>
                     <option value="underline">Underline</option>
@@ -1281,7 +1378,7 @@ export default function CoverEditor() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textAlign}</label>
+                <label className="block text-xs font-medium text-neutral-400 mb-2">{t.textAlign}</label>
                 <div className="flex gap-2">
                   {(['left', 'center', 'right'] as const).map(align => (
                     <button
@@ -1299,7 +1396,7 @@ export default function CoverEditor() {
               </div>
 
               <div>
-                <label className="flex justify-between text-sm font-medium text-neutral-400 mb-3">
+                <label className="flex justify-between text-xs font-medium text-neutral-400 mb-2">
                   <span>{t.strokeWidth}</span>
                   <span>{activeLayer.strokeWidth}px</span>
                 </label>
@@ -1315,14 +1412,14 @@ export default function CoverEditor() {
 
               {activeLayer.strokeWidth > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-neutral-400 mb-3">{t.strokeColor}</label>
+                  <label className="block text-xs font-medium text-neutral-400 mb-2">{t.strokeColor}</label>
                   <div className="flex gap-2">
                     {['#000000', '#ffffff', '#FF5A1F', '#FFD700', '#4F46E5', '#10B981'].map(c => (
                       <button
                         key={c}
                         onClick={() => updateActiveLayer({ strokeColor: c })}
                         className={cn(
-                          "w-10 h-10 rounded-full border-2",
+                          "w-8 h-8 rounded-full border-2",
                           activeLayer.strokeColor === c ? "border-[#00FF66] scale-110" : "border-transparent hover:scale-110"
                         )}
                         style={{ backgroundColor: c }}
@@ -1336,22 +1433,22 @@ export default function CoverEditor() {
 
           {activeTab === 'style' && activeLayer && (
             <div className="space-y-6">
-              <label className="block text-sm font-medium text-neutral-400 mb-3">{t.textBgStyle}</label>
-              <div className="grid grid-cols-2 gap-4">
+              <label className="block text-xs font-medium text-neutral-400 mb-2">{t.textBgStyle}</label>
+              <div className="grid grid-cols-2 gap-2">
                 {TEXT_BG_STYLES.map(style => (
                   <button
                     key={style.id}
                     onClick={() => updateActiveLayer({ styleId: style.id })}
                     className={cn(
-                      "h-32 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
+                      "h-24 rounded-xl border-2 flex flex-col items-center justify-center overflow-hidden relative transition-all bg-[#0A0A0A]",
                       activeLayer.styleId === style.id ? "border-[#00FF66] bg-white/5" : "border-white/10 hover:border-white/20"
                     )}
                   >
-                    <div className="scale-[0.2] origin-center pointer-events-none absolute">
+                    <div className="pointer-events-none">
                       <TextOverlay 
                         text={t.stylePreview} 
                         styleId={style.id} 
-                        fontSize={100} 
+                        fontSize={16} 
                         color="#ffffff"
                         fontFamily="sans-serif"
                         fontWeight="900"
